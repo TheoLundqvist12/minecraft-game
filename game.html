@@ -1,0 +1,537 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Minecraft Game</title>
+  <style>
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      padding: 0;
+      font-family: Arial, Helvetica, sans-serif;
+      background: #000;
+      color: #fff;
+      overflow: hidden;
+    }
+
+    canvas {
+      display: block;
+      background: #87ceeb;
+    }
+
+    #hud {
+      position: absolute;
+      bottom: 20px;
+      left: 20px;
+      background: rgba(0, 0, 0, 0.7);
+      color: #fff;
+      padding: 15px;
+      border-radius: 8px;
+      font-size: 14px;
+      line-height: 1.6;
+      z-index: 10;
+    }
+
+    #inventory {
+      position: absolute;
+      bottom: 20px;
+      right: 20px;
+      background: rgba(0, 0, 0, 0.7);
+      color: #fff;
+      padding: 15px;
+      border-radius: 8px;
+      font-size: 14px;
+      z-index: 10;
+    }
+
+    #hotbar {
+      position: absolute;
+      bottom: 20px;
+      left: 50%;
+      transform: translateX(-50%);
+      display: flex;
+      gap: 5px;
+      z-index: 10;
+    }
+
+    .hotbar-slot {
+      width: 40px;
+      height: 40px;
+      background: rgba(128, 128, 128, 0.8);
+      border: 2px solid #fff;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      font-size: 12px;
+    }
+
+    .hotbar-slot.active {
+      border-color: #ffff00;
+      box-shadow: 0 0 10px #ffff00;
+    }
+
+    #title {
+      position: absolute;
+      top: 20px;
+      left: 20px;
+      font-size: 24px;
+      font-weight: bold;
+      z-index: 10;
+    }
+
+    #coordinates {
+      position: absolute;
+      top: 60px;
+      left: 20px;
+      font-size: 12px;
+      color: #aaa;
+      background: rgba(0, 0, 0, 0.7);
+      padding: 8px;
+      border-radius: 4px;
+      z-index: 10;
+    }
+  </style>
+</head>
+<body>
+  <canvas id="gameCanvas"></canvas>
+  
+  <div id="title">Minecraft</div>
+  <div id="coordinates">X: 0 Y: 0 Z: 0</div>
+
+  <div id="hud">
+    Health: <span id="health">20</span>/20<br>
+    Hunger: <span id="hunger">20</span>/20<br>
+    Dimension: <span id="dimension">Overworld</span><br>
+    Biome: <span id="biome">Plains</span>
+  </div>
+
+  <div id="inventory">
+    Inventory:<br>
+    <span id="invItems"></span>
+  </div>
+
+  <div id="hotbar"></div>
+
+  <script>
+    const canvas = document.getElementById('gameCanvas');
+    const ctx = canvas.getContext('2d');
+    
+    canvas.width = window.innerWidth;
+    canvas.height = window.innerHeight;
+
+    // Game constants
+    const BLOCK_SIZE = 40;
+    const WORLD_WIDTH = 256;
+    const WORLD_HEIGHT = 128;
+    const CHUNK_SIZE = 16;
+
+    // Player object
+    const player = {
+      x: WORLD_WIDTH / 2,
+      y: 50,
+      width: 0.6,
+      height: 1.8,
+      velocityY: 0,
+      velocityX: 0,
+      velocityZ: 0,
+      speed: 0.15,
+      jumpPower: 0.8,
+      isJumping: false,
+      isGrounded: false,
+      health: 20,
+      hunger: 20,
+      selectedSlot: 0,
+      inventory: [
+        { name: 'Pickaxe', count: 1 },
+        { name: 'Axe', count: 1 },
+        { name: 'Dirt', count: 64 },
+        { name: 'Wood', count: 32 },
+        { name: 'Stone', count: 48 },
+        { name: 'Cobblestone', count: 64 },
+        { name: 'Wheat', count: 16 },
+        { name: 'Oak Log', count: 24 }
+      ],
+      dimension: 0, // 0: Overworld, 1: Nether, 2: End
+      name: 'Steve'
+    };
+
+    // Block types
+    const BLOCKS = {
+      AIR: 0,
+      STONE: 1,
+      DIRT: 2,
+      GRASS: 3,
+      COBBLESTONE: 4,
+      OAK_LOG: 5,
+      OAK_LEAVES: 6,
+      SAND: 7,
+      WATER: 8,
+      LAVA: 9,
+      BEDROCK: 10,
+      NETHERRACK: 11,
+      SOUL_SAND: 12,
+      NETHER_BRICK: 13,
+      END_STONE: 14,
+      OBSIDIAN: 15
+    };
+
+    // Terrain generation
+    let terrainMap = {};
+
+    function generateTerrain() {
+      terrainMap = {};
+      
+      for (let x = 0; x < WORLD_WIDTH; x++) {
+        for (let y = 0; y < WORLD_HEIGHT; y++) {
+          const key = `${x},${y}`;
+          
+          if (player.dimension === 0) { // Overworld
+            if (y > 100) {
+              terrainMap[key] = BLOCKS.BEDROCK;
+            } else if (y > 80) {
+              terrainMap[key] = BLOCKS.STONE;
+            } else if (y > 60) {
+              const noise = Math.sin(x * 0.1) * 10 + 65;
+              if (y > noise) {
+                terrainMap[key] = BLOCKS.AIR;
+              } else if (y > noise - 1) {
+                terrainMap[key] = BLOCKS.GRASS;
+              } else if (y > noise - 3) {
+                terrainMap[key] = BLOCKS.DIRT;
+              } else {
+                terrainMap[key] = BLOCKS.STONE;
+              }
+            } else if (y > 50) {
+              terrainMap[key] = BLOCKS.AIR;
+            }
+
+            // Trees
+            if (player.dimension === 0 && Math.random() < 0.01 && y < 65 && y > 55) {
+              terrainMap[key] = BLOCKS.OAK_LOG;
+              for (let dy = 1; dy < 4; dy++) {
+                if (y - dy >= 0) terrainMap[`${x},${y - dy}`] = BLOCKS.OAK_LOG;
+              }
+              for (let lx = -2; lx <= 2; lx++) {
+                for (let ly = -2; ly <= 2; ly++) {
+                  const leafKey = `${x + lx},${y - 4 + ly}`;
+                  if (Math.random() > 0.3) terrainMap[leafKey] = BLOCKS.OAK_LEAVES;
+                }
+              }
+            }
+
+            // Biomes
+            if (x > 100 && x < 140 && Math.random() < 0.1 && y < 65 && y > 55) {
+              terrainMap[key] = BLOCKS.SAND;
+            }
+            
+            if (x > 180 && x < 220 && Math.random() < 0.05 && y < 65 && y > 55) {
+              terrainMap[key] = BLOCKS.WATER;
+            }
+          } else if (player.dimension === 1) { // Nether
+            if (y > 100) {
+              terrainMap[key] = BLOCKS.BEDROCK;
+            } else if (y > 60) {
+              terrainMap[key] = BLOCKS.NETHERRACK;
+            } else if (y > 40) {
+              const noise = Math.sin(x * 0.1) * 10 + 50;
+              if (y > noise) {
+                terrainMap[key] = BLOCKS.LAVA;
+              } else {
+                terrainMap[key] = BLOCKS.NETHERRACK;
+              }
+            }
+          } else { // End
+            if (y > 100) {
+              terrainMap[key] = BLOCKS.BEDROCK;
+            } else if (y > 60) {
+              terrainMap[key] = BLOCKS.END_STONE;
+            } else {
+              terrainMap[key] = BLOCKS.AIR;
+            }
+          }
+        }
+      }
+    }
+
+    function getBlock(x, y) {
+      const key = `${Math.floor(x)},${Math.floor(y)}`;
+      return terrainMap[key] || BLOCKS.AIR;
+    }
+
+    function setBlock(x, y, block) {
+      const key = `${Math.floor(x)},${Math.floor(y)}`;
+      terrainMap[key] = block;
+    }
+
+    // Input handling
+    const keys = {};
+    window.addEventListener('keydown', (e) => {
+      keys[e.key.toLowerCase()] = true;
+
+      if (e.key === ' ') {
+        if (player.isGrounded) {
+          player.velocityY = -player.jumpPower;
+          player.isGrounded = false;
+        }
+      }
+
+      // Dimension switching
+      if (e.key === 'p') {
+        player.dimension = (player.dimension + 1) % 3;
+        generateTerrain();
+        player.x = WORLD_WIDTH / 2;
+        player.y = 50;
+      }
+
+      // Block breaking/placing
+      if (e.key === 'e') {
+        // Break block
+        const targetX = Math.floor(player.x);
+        const targetY = Math.floor(player.y - 0.5);
+        setBlock(targetX, targetY, BLOCKS.AIR);
+      }
+
+      if (e.key === 'r') {
+        // Place block
+        const targetX = Math.floor(player.x);
+        const targetY = Math.floor(player.y - 0.5);
+        setBlock(targetX, targetY, BLOCKS.DIRT);
+      }
+    });
+
+    window.addEventListener('keyup', (e) => {
+      keys[e.key.toLowerCase()] = false;
+    });
+
+    // Update function
+    function update() {
+      // Movement
+      player.velocityX = 0;
+      player.velocityZ = 0;
+
+      if (keys['w']) player.velocityZ -= player.speed;
+      if (keys['s']) player.velocityZ += player.speed;
+      if (keys['a']) player.velocityX -= player.speed;
+      if (keys['d']) player.velocityX += player.speed;
+
+      player.x += player.velocityX;
+      player.y += player.velocityY;
+
+      // Gravity
+      player.velocityY += 0.06;
+      if (player.velocityY > 0.5) player.velocityY = 0.5;
+
+      // Collision detection
+      player.isGrounded = false;
+      const below = getBlock(player.x, player.y + 0.1);
+      const aboveBlock = getBlock(player.x, player.y - player.height);
+
+      if (below !== BLOCKS.AIR && below !== BLOCKS.WATER && below !== BLOCKS.LAVA) {
+        player.y = Math.floor(player.y) + 0.01;
+        player.velocityY = 0;
+        player.isGrounded = true;
+      }
+
+      // World bounds
+      if (player.x < 0) player.x = 0;
+      if (player.x > WORLD_WIDTH - 1) player.x = WORLD_WIDTH - 1;
+      if (player.y < 0) player.y = 0;
+
+      // Health/hunger simulation
+      if (Math.random() < 0.001) {
+        if (player.hunger > 0) player.hunger--;
+        if (player.hunger < 5 && player.health > 1) player.health--;
+      }
+
+      // Update HUD
+      document.getElementById('health').textContent = Math.floor(player.health);
+      document.getElementById('hunger').textContent = Math.floor(player.hunger);
+      document.getElementById('coordinates').textContent = 
+        `X: ${Math.floor(player.x)} Y: ${Math.floor(player.y)} Z: 0`;
+      
+      const dimensions = ['Overworld', 'Nether', 'End'];
+      document.getElementById('dimension').textContent = dimensions[player.dimension];
+
+      const biomes = ['Plains', 'Desert', 'Forest', 'Water'];
+      let biome = 'Plains';
+      if (player.x > 100 && player.x < 140) biome = 'Desert';
+      if (player.x > 50 && player.x < 100) biome = 'Forest';
+      if (player.x > 180 && player.x < 220) biome = 'Water';
+      document.getElementById('biome').textContent = biome;
+
+      // Inventory
+      let invHTML = '';
+      player.inventory.forEach((item, idx) => {
+        invHTML += `${item.name}x${item.count}<br>`;
+      });
+      document.getElementById('invItems').textContent = invHTML;
+    }
+
+    // Render function
+    function render() {
+      ctx.fillStyle = player.dimension === 0 ? '#87ceeb' : player.dimension === 1 ? '#2f0f18' : '#100c1a';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+      // Calculate camera offset
+      const cameraX = player.x - canvas.width / (2 * BLOCK_SIZE);
+      const cameraY = player.y - canvas.height / (2 * BLOCK_SIZE);
+
+      // Draw blocks
+      for (let x = Math.max(0, Math.floor(cameraX)); x < Math.min(WORLD_WIDTH, Math.ceil(cameraX + canvas.width / BLOCK_SIZE)); x++) {
+        for (let y = Math.max(0, Math.floor(cameraY)); y < Math.min(WORLD_HEIGHT, Math.ceil(cameraY + canvas.height / BLOCK_SIZE)); y++) {
+          const block = getBlock(x, y);
+          const screenX = (x - cameraX) * BLOCK_SIZE;
+          const screenY = (y - cameraY) * BLOCK_SIZE;
+
+          if (block === BLOCKS.GRASS) {
+            ctx.fillStyle = '#5cb85c';
+            ctx.fillRect(screenX, screenY, BLOCK_SIZE, BLOCK_SIZE);
+            ctx.fillStyle = '#4a9d4a';
+            ctx.fillRect(screenX, screenY, BLOCK_SIZE, BLOCK_SIZE / 3);
+          } else if (block === BLOCKS.DIRT) {
+            ctx.fillStyle = '#8b6f47';
+            ctx.fillRect(screenX, screenY, BLOCK_SIZE, BLOCK_SIZE);
+          } else if (block === BLOCKS.STONE) {
+            ctx.fillStyle = '#7b7b7b';
+            ctx.fillRect(screenX, screenY, BLOCK_SIZE, BLOCK_SIZE);
+            ctx.strokeStyle = '#5b5b5b';
+            ctx.lineWidth = 1;
+            ctx.strokeRect(screenX, screenY, BLOCK_SIZE, BLOCK_SIZE);
+          } else if (block === BLOCKS.COBBLESTONE) {
+            ctx.fillStyle = '#8b8b8b';
+            ctx.fillRect(screenX, screenY, BLOCK_SIZE, BLOCK_SIZE);
+            ctx.fillStyle = '#6b6b6b';
+            ctx.fillRect(screenX + 5, screenY + 5, BLOCK_SIZE - 10, BLOCK_SIZE - 10);
+          } else if (block === BLOCKS.OAK_LOG) {
+            ctx.fillStyle = '#6b4423';
+            ctx.fillRect(screenX, screenY, BLOCK_SIZE, BLOCK_SIZE);
+            ctx.fillStyle = '#8b6433';
+            ctx.fillRect(screenX + 5, screenY + 5, BLOCK_SIZE - 10, BLOCK_SIZE - 10);
+          } else if (block === BLOCKS.OAK_LEAVES) {
+            ctx.fillStyle = '#2d8b2d';
+            ctx.fillRect(screenX, screenY, BLOCK_SIZE, BLOCK_SIZE);
+          } else if (block === BLOCKS.SAND) {
+            ctx.fillStyle = '#d8c468';
+            ctx.fillRect(screenX, screenY, BLOCK_SIZE, BLOCK_SIZE);
+          } else if (block === BLOCKS.WATER) {
+            ctx.fillStyle = '#4da6ff';
+            ctx.fillRect(screenX, screenY, BLOCK_SIZE, BLOCK_SIZE);
+            ctx.fillStyle = 'rgba(173, 216, 230, 0.3)';
+            ctx.fillRect(screenX, screenY, BLOCK_SIZE, BLOCK_SIZE / 2);
+          } else if (block === BLOCKS.LAVA) {
+            ctx.fillStyle = '#ff5500';
+            ctx.fillRect(screenX, screenY, BLOCK_SIZE, BLOCK_SIZE);
+            ctx.fillStyle = 'rgba(255, 100, 0, 0.5)';
+            ctx.fillRect(screenX, screenY, BLOCK_SIZE, BLOCK_SIZE);
+          } else if (block === BLOCKS.BEDROCK) {
+            ctx.fillStyle = '#1a1a1a';
+            ctx.fillRect(screenX, screenY, BLOCK_SIZE, BLOCK_SIZE);
+            ctx.fillStyle = '#2a2a2a';
+            for (let i = 0; i < 3; i++) {
+              ctx.fillRect(screenX + i * 13, screenY + i * 13, 5, 5);
+            }
+          } else if (block === BLOCKS.NETHERRACK) {
+            ctx.fillStyle = '#8b3a3a';
+            ctx.fillRect(screenX, screenY, BLOCK_SIZE, BLOCK_SIZE);
+            ctx.fillStyle = '#ab5a5a';
+            ctx.fillRect(screenX + 3, screenY + 3, BLOCK_SIZE - 6, BLOCK_SIZE - 6);
+          } else if (block === BLOCKS.SOUL_SAND) {
+            ctx.fillStyle = '#4a3a2a';
+            ctx.fillRect(screenX, screenY, BLOCK_SIZE, BLOCK_SIZE);
+            ctx.fillStyle = '#6a5a4a';
+            for (let i = 0; i < 2; i++) {
+              ctx.fillRect(screenX + i * 20, screenY + i * 20, 8, 8);
+            }
+          } else if (block === BLOCKS.END_STONE) {
+            ctx.fillStyle = '#c4b88a';
+            ctx.fillRect(screenX, screenY, BLOCK_SIZE, BLOCK_SIZE);
+            ctx.fillStyle = '#a49a7a';
+            ctx.fillRect(screenX + 4, screenY + 4, BLOCK_SIZE - 8, BLOCK_SIZE - 8);
+          } else if (block === BLOCKS.OBSIDIAN) {
+            ctx.fillStyle = '#0a0e27';
+            ctx.fillRect(screenX, screenY, BLOCK_SIZE, BLOCK_SIZE);
+            ctx.fillStyle = '#1a1e37';
+            ctx.fillRect(screenX + 3, screenY + 3, BLOCK_SIZE - 6, BLOCK_SIZE - 6);
+          }
+        }
+      }
+
+      // Draw player
+      const playerScreenX = (player.x - cameraX) * BLOCK_SIZE;
+      const playerScreenY = (player.y - cameraY) * BLOCK_SIZE;
+
+      // Head
+      ctx.fillStyle = '#f5deb3';
+      ctx.fillRect(playerScreenX + BLOCK_SIZE * 0.2, playerScreenY - BLOCK_SIZE * 0.5, BLOCK_SIZE * 0.6, BLOCK_SIZE * 0.6);
+
+      // Eyes
+      ctx.fillStyle = '#000';
+      ctx.fillRect(playerScreenX + BLOCK_SIZE * 0.3, playerScreenY - BLOCK_SIZE * 0.4, BLOCK_SIZE * 0.1, BLOCK_SIZE * 0.1);
+      ctx.fillRect(playerScreenX + BLOCK_SIZE * 0.6, playerScreenY - BLOCK_SIZE * 0.4, BLOCK_SIZE * 0.1, BLOCK_SIZE * 0.1);
+
+      // Body
+      ctx.fillStyle = '#4da6d6';
+      ctx.fillRect(playerScreenX + BLOCK_SIZE * 0.25, playerScreenY, BLOCK_SIZE * 0.5, BLOCK_SIZE * 0.4);
+
+      // Legs
+      ctx.fillStyle = '#8b4513';
+      ctx.fillRect(playerScreenX + BLOCK_SIZE * 0.3, playerScreenY + BLOCK_SIZE * 0.4, BLOCK_SIZE * 0.2, BLOCK_SIZE * 0.4);
+      ctx.fillRect(playerScreenX + BLOCK_SIZE * 0.5, playerScreenY + BLOCK_SIZE * 0.4, BLOCK_SIZE * 0.2, BLOCK_SIZE * 0.4);
+
+      // Draw crosshair
+      const crossX = canvas.width / 2;
+      const crossY = canvas.height / 2;
+      ctx.strokeStyle = 'rgba(255, 255, 255, 0.5)';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(crossX - 10, crossY);
+      ctx.lineTo(crossX + 10, crossY);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(crossX, crossY - 10);
+      ctx.lineTo(crossX, crossY + 10);
+      ctx.stroke();
+    }
+
+    // Hotbar rendering
+    function renderHotbar() {
+      const hotbarDiv = document.getElementById('hotbar');
+      hotbarDiv.innerHTML = '';
+
+      for (let i = 0; i < 9; i++) {
+        const slot = document.createElement('div');
+        slot.className = 'hotbar-slot' + (i === player.selectedSlot ? ' active' : '');
+        if (i < player.inventory.length) {
+          slot.textContent = player.inventory[i].name[0];
+        }
+        slot.addEventListener('click', () => {
+          player.selectedSlot = i;
+          renderHotbar();
+        });
+        hotbarDiv.appendChild(slot);
+      }
+    }
+
+    // Game loop
+    function gameLoop() {
+      update();
+      render();
+      renderHotbar();
+      requestAnimationFrame(gameLoop);
+    }
+
+    // Handle window resize
+    window.addEventListener('resize', () => {
+      canvas.width = window.innerWidth;
+      canvas.height = window.innerHeight;
+    });
+
+    // Initialize
+    generateTerrain();
+    gameLoop();
+  </script>
+</body>
+</html>
